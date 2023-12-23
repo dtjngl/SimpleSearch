@@ -679,7 +679,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             $options = array(
                 'numPageLinks' => 5,
                 'listClass' => 'flex items-center justify-between',
-                'linkMarkup' => "<a class='align-baseline font-cf-regular relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 border border-gray-300 bg-white' href='{url}'>{out}</a>",
+                'linkMarkup' => "<a class='align-baseline font-cf-regular relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 border border-gray-300 bg-white' href='{url}?q={$this->q}&cat={$this->cat}''>{out}</a>",
                 'currentItemClass' => 'border border-teal-600 relative z-10 inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-800 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600',
                 'itemMarkup' => '<li class="align-baseline {class} h-auto text-cc1 hover:bg-cc1">{out}</li>',
                 'currentLinkMarkup' => "<a class='align-baseline font-cf-regular text-white'>{out}</a>",
