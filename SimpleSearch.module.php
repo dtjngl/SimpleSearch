@@ -645,7 +645,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 			$html .= '<div class="px-4 py-3 sm:px-6">';
 			$html .= '<div class="flex justify-center p-4 sm:flex sm:flex-1 sm:items-center sm:justify-between">';
 			$html .= '<div class="w-full text-center">';
-			$html .= '<nav class="isolate inline-flex space-x-px rounded-md shadow-sm" aria-label="Pagination">';
+			$html .= '<nav class="isolate inline-flex space-x-px rounded-card shadow-sm" aria-label="Pagination">';
 			
 
             $options = array(
