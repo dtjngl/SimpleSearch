@@ -14,6 +14,7 @@ SimpleSearch is a ProcessWire module that provides basic search functionality fo
 - Category-based searching.
 - Pagination for search results.
 - Customizable search criteria and result markup.
+- Works on monolingual sites (standard Text/Textarea/PageTitle fields) and multilingual sites (Language fieldtypes). LanguageSupport is optional.
 
 ## Installation
 

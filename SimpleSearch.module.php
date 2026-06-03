@@ -17,7 +17,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         return array(
             'title' => 'Simple Search',
-            'version' => '1.0.0',
+            'version' => '1.0.1',
             'summary' => 'A simple search module for ProcessWire.',
             'autoload' => true,
             'singular' => true,
@@ -89,16 +89,16 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             $this->$key = $value;
         }
 
-        // Store the path of the custom markup functions file
-        $this->customMarkupFilePath = $this->config->paths->templates . $this->custom_search_results_markup;
+        $this->limit = (int) $this->limit;
+        $this->sublimit = (int) $this->sublimit;
+        $this->snippets_amount = max(1, (int) $this->snippets_amount);
 
-        if (!empty($this->custom_search_results_markup) && file_exists($this->customMarkupFilePath)) {
-            require_once($this->customMarkupFilePath);#
-        } else {
-            // Store the path of the default markup functions file
-            $this->defaultMarkupFilePath = __DIR__ . '/_default_markup_functions.php';            
-            // Include the default markup functions file to access renderDefaultMarkup function
-            require_once($this->defaultMarkupFilePath);            
+        // Optional custom markup (e.g. extended classes); default rendering is on this module
+        if (!empty($this->custom_search_results_markup)) {
+            $customMarkupFilePath = $this->config->paths->templates . $this->custom_search_results_markup;
+            if (file_exists($customMarkupFilePath)) {
+                require_once $customMarkupFilePath;
+            }
         }
         
     }
@@ -226,21 +226,15 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
                 // Pass the sanitized input to createSelector() to get the selector string.
                 $selector = $this->createSelector($this->q, $category);
-                bd($selector);
                 $unfilteredMatches = $this->pages("$selector, start=0, limit=99999");
-
-                bd(count($unfilteredMatches));
 
                 $matches = new PageArray;
 
-
                 foreach ($unfilteredMatches as $match) {
-                    if ($this->checkAndRenderSnippets($match)) {
-                        $snippets = $this->checkAndRenderSnippets($match);
-                        if (!$snippets) continue;
-                        $match->set('snippets', $snippets);
-                        $matches->add($match);
-                    }
+                    $snippets = $this->checkAndRenderSnippets($match);
+                    if (!$snippets) continue;
+                    $match->set('snippets', $snippets);
+                    $matches->add($match);
                 }
 
                 $matches->sort("-date_modification");
@@ -305,6 +299,9 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             "FieldtypeTextLanguage",
             "FieldtypeTextareaLanguage",
             "FieldtypePageTitleLanguage",
+            "FieldtypeText",
+            "FieldtypeTextarea",
+            "FieldtypePageTitle",
         ];        
 
         // Replace this loop with the logic to extract the fields from the templates
@@ -324,52 +321,53 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
     
     public function renderMarkupForSearchCategory($matches) {
 
-        if (method_exists($matches->first, 'renderSingle_SearchMarkup')) {
-            $out = $matches->first->renderLayout_Search($matches);
-            return $out;
-        } else {
-            return $this->render_DefaultMarkup($matches);
+        if (!$matches->count()) return '';
+
+        if (method_exists($matches->first(), 'renderSingle_SearchMarkup')) {
+            return $matches->first()->renderLayout_Search($matches);
         }
+
+        return $this->render_DefaultMarkup($matches);
+    }
+
+
+    protected function render_DefaultMarkup(PageArray $matches) {
+
+        $html = '';
+
+        foreach ($matches as $match) {
+            $html .= '<li class="simplesearch-result">';
+            $html .= '<a href="' . $match->url . '">' . $this->sanitizer->entities($match->title) . '</a>';
+            if ($match->snippets) {
+                $html .= '<div class="simplesearch-snippets">' . $match->snippets . '</div>';
+            }
+            $html .= '</li>';
+        }
+
+        return $html;
     }
 
 
     protected function checkAndRenderSnippets($match) {
 
-        // Get the search term
         $searchTerm = $this->q;
-
-        // Get the unique fields from the template of the $match
         $uniqueFields = $this->getUniqueFieldsFromTemplate($match->template);
-    
+        $maxSnippets = max(1, (int) $this->snippets_amount);
         $snippetMarkups = '';
+        $snippetCount = 0;
 
-        // Iterate through each field
         foreach ($uniqueFields as $field) {
-            // Get the value of the field from $match
+            if ($snippetCount >= $maxSnippets) break;
+
             $fieldValue = $match->$field;
-
-            // Check if the search term is found in the field value
             $s = $this->buildSnippets($fieldValue, $searchTerm, 25, 25);
-            if ($s) $snippetMarkups .= $s;
-            
-            // // Check if the search term has spaces
-            // if (strpos($searchTerm, ' ') !== false) {
-            //     $searchWords = explode(' ', $searchTerm);
-            //     foreach ($searchWords as $word) {        
-            //         // Check if the search term is found in the field value
-            //         $s = $this->buildSnippets($fieldValue, $word, 25, 25);
-            //         if ($s) $snippetMarkups .= $s;
-            //     }
-            // }
-                
-        }
-            
-        if ($snippetMarkups != '') {
-            return $snippetMarkups;
-        } else {
-            return false;            
+            if ($s) {
+                $snippetMarkups .= $s;
+                $snippetCount++;
+            }
         }
 
+        return $snippetMarkups !== '' ? $snippetMarkups : false;
     }
             
 
@@ -631,44 +629,18 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
         // Check if we need to render pagination links
         if ($this->cat > 0 && $this->q != '') {
 
-            $options = array(
-                'listClass' => 'pagination noselect uk-flex uk-flex-wrap uk-flex-center',
-                'linkMarkup' => "<a href='{url}?q={$this->q}&cat={$this->cat}'>{out}</a>",
-                'currentItemClass' => 'current',
-                'separatorItemLabel' => '…',
-                'separatorItemClass' => 'uk-disabled',
-                'previousItemClass' => 'nextprev',
-                'nextItemClass' => 'nextprev',
-                'currentLinkMarkup' => '<span class="current">{out}</span>',
-                'nextItemLabel' => '<span uk-icon="icon: arrow-right; ratio: 1.8;"></span>',
-                'previousItemLabel' => '<span uk-icon="icon: arrow-left; ratio: 1.8;"></span>',
-                'numPageLinks' => '4',
-                'lastItemClass' => ''
-            );
-            
-        
             $pager = $this->wire('modules')->get('MarkupPagerNav');
 
-            // Get the total number of results for the current category
-            $totalResults = $this->totals->eq($this->cat);
-
-            // Update the 'total' option in the $options array with the total number of results
-            $options['total'] = $totalResults;
-    
-            // Create a new WireArray containing only the paginated matches
             $matches = $this->results->eq($this->cat);
             $start = $this->updateStart();
-            $limit = (int)$this->limit;
+            $limit = (int) $this->limit;
             $matches->setStart($start);
             $matches->setLimit($limit);
             $this->matches = $matches;
-        
-            // // Render the pagination links
-            // $html .= '<section>';
-            // $html .= '<div class="uk-flex uk-flex-center">' . $pager->render($matches, $options) . '</div>';
-            // $html .= '</section>';
 
-            // ContentPage
+            $q = $this->sanitizer->entities($this->q);
+            $cat = (int) $this->cat;
+
             $html = '<section>';
 			$html .= '<div class="px-4 py-3 sm:px-6">';
 			$html .= '<div class="flex justify-center p-4 sm:flex sm:flex-1 sm:items-center sm:justify-between">';
@@ -679,7 +651,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             $options = array(
                 'numPageLinks' => 5,
                 'listClass' => 'flex items-center justify-between',
-                'linkMarkup' => "<a class='align-baseline font-cf-regular relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 border border-gray-300 bg-white' href='{url}?q={$this->q}&cat={$this->cat}''>{out}</a>",
+                'linkMarkup' => "<a class='align-baseline font-cf-regular relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 border border-gray-300 bg-white' href='{url}?q={$q}&cat={$cat}'>{out}</a>",
                 'currentItemClass' => 'border border-teal-600 relative z-10 inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-800 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600',
                 'itemMarkup' => '<li class="align-baseline {class} h-auto text-cc1 hover:bg-cc1">{out}</li>',
                 'currentLinkMarkup' => "<a class='align-baseline font-cf-regular text-white'>{out}</a>",
