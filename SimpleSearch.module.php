@@ -497,7 +497,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         }
 
-        $html .= '<br/><hr>';
+        $html .= '<hr class="mt-6 border-gray-200">';
 
         return $html;
 
@@ -536,7 +536,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
                     $html .= '<p class="py-12 text-2xl"><a class="colorlink" href="./?q=' . $this->q . '&cat=' . $key . '">mehr…</a></p>';
                 }
 
-                $html .= '</section><hr>';
+                $html .= '</section>';
 
             }
         } else {
