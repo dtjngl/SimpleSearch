@@ -17,7 +17,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         return array(
             'title' => 'Simple Search',
-            'version' => '1.1.0',
+            'version' => '1.1.1',
             'summary' => 'A simple search module for ProcessWire.',
             'autoload' => true,
             'singular' => true,
@@ -239,7 +239,6 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             if (!isset($groups[$groupKey])) {
                 $groups[$groupKey] = [
                     'key' => $groupKey,
-                    'label' => $this->getTemplateCategoryLabel($temp),
                     'templates' => [],
                 ];
                 $discoveryOrder[] = $groupKey;
@@ -371,14 +370,12 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
 
     protected function getCategoryDisplayLabel($category): string {
-        if (is_array($category) && !empty($category['label'])) {
-            return $category['label'];
-        }
 
-        $string = $this->getLanguageString('simplesearch_category', '__');
-        $template = $this->templates->get((string) $category);
+        $templateNames = $this->getCategoryTemplateNames($category);
+        $template = $this->templates->get($templateNames[0] ?? '');
 
-        return $template ? (string) $template->get($string) : '';
+        return $template ? $this->getTemplateCategoryLabel($template) : '';
+
     }
 
 
@@ -666,13 +663,30 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
         return $this->$fieldNameString;
     }
 
+    protected function getCurrentLanguage(): Language {
+        $languages = $this->wire('languages');
+
+        if ($languages) {
+            $page = $this->wire('page');
+            if ($page && $page->id && method_exists($page, 'getLanguage')) {
+                $pageLanguage = $page->getLanguage();
+                if ($pageLanguage && $pageLanguage->id) return $pageLanguage;
+            }
+        }
+
+        $userLanguage = $this->user->language;
+        if ($userLanguage && $userLanguage->id) return $userLanguage;
+
+        return $languages ? $languages->getDefault() : $userLanguage;
+    }
+
+
     protected function getLanguageString(string $key, string $x='') {
-        $language = $this->user->language;
-        if ($language->name !== 'default') {
-            $string = $key.$x.$language->id;
-            return $string;
-        } 
-        return $key;
+        $language = $this->getCurrentLanguage();
+        if ($language->isDefault()) {
+            return $key;
+        }
+        return $key . $x . $language->id;
     }
         
 
