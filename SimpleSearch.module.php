@@ -17,7 +17,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         return array(
             'title' => 'Simple Search',
-            'version' => '1.0.1',
+            'version' => '1.0.5',
             'summary' => 'A simple search module for ProcessWire.',
             'autoload' => true,
             'singular' => true,
@@ -104,6 +104,54 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
     }
 
 
+    /**
+     * @param array $data
+     * @return InputfieldWrapper
+     */
+    public function getModuleConfigInputfields(array $data) {
+
+        $form = $this->wire(new InputfieldWrapper());
+        $built = $this->buildIndexedCategoryGroups();
+        $groups = $built['groups'];
+        $discoveryOrder = $built['discoveryOrder'];
+
+        /** @var InputfieldAsmSelect $field */
+        $field = $this->modules->get('InputfieldAsmSelect');
+        $field->name = 'category_order';
+        $field->label = $this->_('Category section order');
+        $field->description = $this->_('Drag to reorder search result sections.');
+        $field->notes = $this->_('Templates with the same default-language category label are grouped. The sort order applies to all languages. Frontend section titles use each visitor\'s language.');
+        $field->icon = 'sort';
+        $field->columnWidth = 100;
+        $field->setAsmSelectOption('sortable', true);
+        $field->setAsmSelectOption('removeLabel', '');
+
+        foreach ($discoveryOrder as $groupKey) {
+            $field->addOption($groupKey, $this->getCategoryGroupOptionLabel($groupKey, $groups[$groupKey]));
+        }
+
+        $value = $this->normalizeCategoryOrder($data['category_order'] ?? '');
+        if (empty($value)) {
+            $value = $discoveryOrder;
+        } else {
+            foreach ($discoveryOrder as $groupKey) {
+                if (!in_array($groupKey, $value, true)) {
+                    $value[] = $groupKey;
+                }
+            }
+            $value = array_values(array_filter($value, function($groupKey) use ($groups) {
+                return isset($groups[$groupKey]);
+            }));
+        }
+
+        $field->value = $value;
+        $form->add($field);
+
+        return $form;
+
+    }
+
+
     public function addSimpleSearchCategoryField(HookEvent $event) {
         $languages = $this->wire('languages');
         $template = $event->arguments[0];
@@ -119,7 +167,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             }
         }
         $field->label = $this->_('SimpleSearch Category');
-        $field->description = $this->_('Enter the SimpleSearch category label for this template. If empty, pages using this template will NOT be indexed.');
+        $field->description = $this->_('Enter the SimpleSearch category label for this template. If empty, pages using this template will NOT be indexed. Templates that share the same default-language label are grouped into one results section. Section order is configured in the SimpleSearch module settings.');
         $field->notes = $this->_('tipp: use plural');
 
         // $form->insertAfter($field, $form->tags);
@@ -151,17 +199,186 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
     protected function setIndexedcategories() {
 
-        $indexedCategories = new WireArray;
+        $built = $this->buildIndexedCategoryGroups();
+        $sortedGroups = $this->sortCategoryGroups(
+            $built['groups'],
+            $built['discoveryOrder'],
+            $this->getConfiguredCategoryOrder()
+        );
 
-        foreach ($this->templates as $temp) {
-            if ($temp->simplesearch_category == '') continue;
-            $indexedCategories->add($temp);
+        $indexedCategories = new WireArray;
+        foreach ($sortedGroups as $group) {
+            $indexedCategories->add($group);
         }
 
         $indexedCategories->prepend('');
-
         $this->indexedCategories = $indexedCategories;
 
+    }
+
+
+    /**
+     * Build category groups from indexed templates.
+     *
+     * Groups by default-language simplesearch_category (stable key). Display labels
+     * use the active language when results are rendered.
+     *
+     * @return array{groups: array<string, array>, discoveryOrder: array<int, string>}
+     */
+    public function buildIndexedCategoryGroups(): array {
+
+        $groups = [];
+        $discoveryOrder = [];
+
+        foreach ($this->templates as $temp) {
+            if ($temp->simplesearch_category === '') continue;
+
+            $groupKey = $this->getCategoryGroupKey($temp);
+            if ($groupKey === '') continue;
+
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'key' => $groupKey,
+                    'label' => $this->getTemplateCategoryLabel($temp),
+                    'templates' => [],
+                ];
+                $discoveryOrder[] = $groupKey;
+            }
+
+            $groups[$groupKey]['templates'][] = $temp->name;
+        }
+
+        return [
+            'groups' => $groups,
+            'discoveryOrder' => $discoveryOrder,
+        ];
+
+    }
+
+
+    /** Stable group key from the default-language category label. */
+    protected function getCategoryGroupKey(Template $template): string {
+        return mb_strtolower(trim((string) $template->simplesearch_category));
+    }
+
+
+    /** @return array<int, string> */
+    protected function getConfiguredCategoryOrder(): array {
+        return $this->normalizeCategoryOrder($this->category_order ?? '');
+    }
+
+
+    /**
+     * @param array<int, string>|string $order
+     * @return array<int, string>
+     */
+    protected function normalizeCategoryOrder($order): array {
+
+        if (is_array($order)) {
+            $keys = array_map(function($key) {
+                return mb_strtolower(trim((string) $key));
+            }, $order);
+        } else {
+            $raw = trim((string) $order);
+            if ($raw === '') return [];
+
+            $keys = preg_split('/\R/u', $raw) ?: [];
+            $keys = array_map(function($key) {
+                return mb_strtolower(trim((string) $key));
+            }, $keys);
+        }
+
+        return array_values(array_filter($keys, function($key) {
+            return $key !== '';
+        }));
+
+    }
+
+
+    protected function getCategoryGroupOptionLabel(string $groupKey, array $group): string {
+
+        $templateNames = $group['templates'];
+        $template = $this->templates->get($templateNames[0] ?? '');
+
+        if (!$template) {
+            return $groupKey . ' (' . implode(', ', $templateNames) . ')';
+        }
+
+        $label = trim((string) $template->simplesearch_category);
+        if ($label === '') $label = $groupKey;
+
+        return $label . ' (' . implode(', ', $templateNames) . ')';
+
+    }
+
+
+    /**
+     * @param array<string, array> $groups
+     * @param array<int, string> $discoveryOrder
+     * @param array<int, string> $orderedKeys
+     * @return array<int, array>
+     */
+    protected function sortCategoryGroups(array $groups, array $discoveryOrder, array $orderedKeys): array {
+
+        $appendUnknown = function(array $orderKeys) use ($groups, $discoveryOrder): array {
+            $result = [];
+            $used = [];
+
+            foreach ($orderKeys as $key) {
+                if (!isset($groups[$key]) || isset($used[$key])) continue;
+                $result[] = $groups[$key];
+                $used[$key] = true;
+            }
+
+            foreach ($discoveryOrder as $key) {
+                if (isset($used[$key])) continue;
+                $result[] = $groups[$key];
+            }
+
+            return $result;
+        };
+
+        if (empty($orderedKeys)) {
+            return $appendUnknown([]);
+        }
+
+        return $appendUnknown($orderedKeys);
+
+    }
+
+
+    /** Localized SimpleSearch category label for a template. */
+    protected function getTemplateCategoryLabel(Template $template): string {
+        $property = $this->getLanguageString('simplesearch_category', '__');
+        $label = trim((string) $template->get($property));
+
+        if ($label === '') {
+            $label = trim((string) $template->simplesearch_category);
+        }
+
+        return $label;
+    }
+
+
+    /** @return array<int, string> */
+    protected function getCategoryTemplateNames($category): array {
+        if (is_array($category) && !empty($category['templates'])) {
+            return $category['templates'];
+        }
+
+        return [(string) $category];
+    }
+
+
+    protected function getCategoryDisplayLabel($category): string {
+        if (is_array($category) && !empty($category['label'])) {
+            return $category['label'];
+        }
+
+        $string = $this->getLanguageString('simplesearch_category', '__');
+        $template = $this->templates->get((string) $category);
+
+        return $template ? (string) $template->get($string) : '';
     }
 
 
@@ -245,10 +462,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
                 $this->results->set($cat, $matches);
                 $this->totals->set($cat, $total);
 
-                $string = $this->getLanguageString('simplesearch_category', '__');
-                $categoryLabel = $this->templates->get($category)->$string;
-
-                $this->labels->set($cat, $categoryLabel);
+                $this->labels->set($cat, $this->getCategoryDisplayLabel($category));
 
                 $allTotals += $total;
 
@@ -279,15 +493,34 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
         
     protected function createSelector($q, $category) {
 
-        $selector = "template=" . $category;
+        $templateNames = $this->getCategoryTemplateNames($category);
+        $selector = 'template=' . implode('|', $templateNames);
         $search_operator = $this->search_operator;
 
-        $fields = $this->getUniqueFieldsFromTemplate($category);
+        $fields = $this->getUniqueFieldsFromTemplates($templateNames);
 
-        $selector .= ", " . implode('|', $fields) . "$search_operator$q";
+        if (count($fields) === 0) {
+            return $selector;
+        }
+
+        $selector .= ', ' . implode('|', $fields) . "$search_operator$q";
 
         return $selector;
 
+    }
+
+
+    /** @param array<int, string> $templateNames */
+    protected function getUniqueFieldsFromTemplates(array $templateNames): array {
+        $fields = [];
+
+        foreach ($templateNames as $templateName) {
+            foreach ($this->getUniqueFieldsFromTemplate($templateName) as $fieldName) {
+                $fields[$fieldName] = $fieldName;
+            }
+        }
+
+        return array_values($fields);
     }
 
 
@@ -302,11 +535,13 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
             "FieldtypeText",
             "FieldtypeTextarea",
             "FieldtypePageTitle",
-        ];        
+        ];
 
-        // Replace this loop with the logic to extract the fields from the templates
-        // For example, if each template has a property "$fields" containing an array of field names:
-        $template = $this->templates->get("$category");
+        $template = $this->templates->get((string) $category);
+        if (!$template) {
+            return $fields;
+        }
+
         foreach ($template->fields as $field) {
 
             // if (strpos($field->type, "Text") == false && strpos($field->type, "Title") == false) continue;
@@ -323,8 +558,9 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         if (!$matches->count()) return '';
 
-        if (method_exists($matches->first(), 'renderSingle_SearchMarkup')) {
-            return $matches->first()->renderLayout_Search($matches);
+        $first = $matches->first();
+        if ($first && method_exists($first, 'renderLayout_Search')) {
+            return $first->renderLayout_Search($matches);
         }
 
         return $this->render_DefaultMarkup($matches);
