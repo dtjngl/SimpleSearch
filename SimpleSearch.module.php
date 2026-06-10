@@ -17,7 +17,7 @@ class SimpleSearch extends WireData implements Module, ConfigurableModule {
 
         return array(
             'title' => 'Simple Search',
-            'version' => '1.0.5',
+            'version' => '1.1.0',
             'summary' => 'A simple search module for ProcessWire.',
             'autoload' => true,
             'singular' => true,
